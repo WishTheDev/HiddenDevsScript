@@ -1,0 +1,225 @@
+--Wish engine: Zone Instance V1
+local zoneinstancer = {}
+
+local replicated_storage = game:GetService("ReplicatedStorage")
+local constants = require(script.Parent.Parent:WaitForChild('Constants'))
+
+local gui = game.Players.LocalPlayer.PlayerGui:WaitForChild('Instancing')
+local bg = gui:WaitForChild('Background'):WaitForChild('BG')
+local statetext = gui:WaitForChild('StateText')
+local statebar = gui:WaitForChild('StateBarMain'):WaitForChild('Bar')
+local instdatatext = gui:WaitForChild('InstancingData')
+
+local main_spawn = workspace:WaitForChild('SpawnLocation')
+
+local assetloaddelay = 0.075
+local assetdeletedelay = 0.0355
+
+local half = 2
+
+local images = require(script:WaitForChild('ZoneImages'))
+
+function zoneinstancer.DeleteZone(self, zone)
+	if self.map_instancing ~= false then
+		--Get information
+		local collision = workspace:WaitForChild('Collision')
+		local decorations = workspace:WaitForChild('Decorations')
+		local object = workspace:WaitForChild('Objects')
+		local lighting = game:GetService('Lighting')
+		local rails = object:WaitForChild('Rails')
+		
+		instdatatext.Visible = true
+		if collision:FindFirstChild(zone..'Collision') then
+			for _,instance in ipairs(collision:FindFirstChild(zone..'Collision'):GetChildren()) do
+				instance:Destroy()
+				instdatatext.Text = 'Asset delete speed: '..assetdeletedelay..' asset per sec, Deleted assets: '..#collision:FindFirstChild(zone..'Collision'):GetChildren()..'/0'
+				
+				if #collision:FindFirstChild(zone..'Collision'):GetChildren() == 0 then
+					collision:FindFirstChild(zone..'Collision'):Destroy()
+					
+					if decorations:FindFirstChild(zone..'Decorations') then
+						for _,decor in ipairs(decorations:FindFirstChild(zone..'Decorations'):GetChildren()) do
+							decor:Destroy()
+							print('Decor destroyed')
+							task.wait(assetdeletedelay)
+						end
+					end
+					
+					for _,obj in ipairs(object:FindFirstChild(zone..'Objects'):GetChildren()) do
+						obj:Destroy()
+						instdatatext.Text = 'Object delete speed: '..assetdeletedelay..' obj per sec, Deleted objects: '..#object:FindFirstChild(zone..'Objects'):GetChildren()..'/0'
+						
+						if #object:FindFirstChild(zone..'Objects'):GetChildren() == 0 then
+							object:FindFirstChild(zone..'Objects'):Destroy()
+							
+							for _,v in pairs(lighting:GetChildren()) do
+								v:Destroy()
+							end
+							
+							for _,rail in pairs(rails:FindFirstChild(zone..'Rails'):GetChildren()) do
+								rail:Destroy()
+							end
+						end
+						
+						print('Object destroyed')
+						task.wait(assetdeletedelay)
+					end
+				end
+				
+				print('Asset destroyed')
+				task.wait(assetdeletedelay)
+			end
+		end
+	end
+end
+
+function zoneinstancer.InstanceZone(self, zone)
+	if self.zone.Value == zone then return end
+	if self.map_instancing ~= true then
+		self.map_instancing = true
+		
+		--Create gui
+		bg.Image = images.zoneimages[zone]
+		gui.Enabled = true
+		
+		--Delete temp
+		if game.Lighting:WaitForChild('main') then
+			game.Lighting:ClearAllChildren()
+		end
+
+		--Get information
+		statetext.Text = 'Deleting old instances...'
+		local spawnpos = workspace:WaitForChild(zone..'Spawn')
+		local collision = script.Zones.Collision:WaitForChild(zone..'Collision')
+		local objects = script.Zones.Object:WaitForChild(zone..'Objects')
+		local lighting = script.Zones.Lighting:WaitForChild(zone..'Lighting')
+		local rails = script.Zones.Object.Rails:WaitForChild(zone..'Rails')
+		local music = script.Zones.Music:WaitForChild(zone)
+		local decorations = nil
+
+		--Prepare character state
+		main_spawn.Position = spawnpos.Position
+		self.pos = spawnpos.Position
+		self.state = constants.state.cutscene
+		self.animation = 'Idle'
+		self.spd = Vector3.new(0,0,0)
+		self:ResetObjectState()
+		
+		--Remove music
+		for _,music in pairs(music.Parent:GetChildren()) do
+			music:Stop()
+		end
+		
+		--Delete old Zones
+		if zone == 'GreenHill' then
+			zoneinstancer.DeleteZone(self, 'Marble')
+			zoneinstancer.DeleteZone(self, 'ChemicalPlant')
+			zoneinstancer.DeleteZone(self, 'ChaosIsland')
+			instdatatext.Visible = false
+			instdatatext.Text = '0'
+		elseif zone == 'Marble' then
+			zoneinstancer.DeleteZone(self, 'GreenHill')
+			zoneinstancer.DeleteZone(self, 'ChemicalPlant')
+			zoneinstancer.DeleteZone(self, 'ChaosIsland')
+			instdatatext.Visible = false
+			instdatatext.Text = '0'
+		elseif zone == 'ChemicalPlant' then
+			zoneinstancer.DeleteZone(self, 'GreenHill')
+			zoneinstancer.DeleteZone(self, 'Marble')
+			zoneinstancer.DeleteZone(self, 'ChaosIsland')
+			instdatatext.Visible = false
+			instdatatext.Text = '0'
+		elseif zone == 'ChaosIsland' then
+			zoneinstancer.DeleteZone(self, 'GreenHill')
+			zoneinstancer.DeleteZone(self, 'Marble')
+			zoneinstancer.DeleteZone(self, 'ChemicalPlant')
+			instdatatext.Visible = false
+			instdatatext.Text = '0'
+		end
+
+		task.wait(1)
+
+		--Check for decorations existing
+		statetext.Text = 'Getting '..zone..' Zone decorations...'
+		instdatatext.Visible = false
+		if script.Zones.Decorations:FindFirstChild(zone..'Decorations') then
+			decorations = script.Zones.Decorations:WaitForChild(zone..'Decorations')
+		end
+
+		task.wait(0.5)
+
+		--Spawn zone collision
+		statetext.Text = 'Instancing zone collision...'
+		local zonefolder_collision = Instance.new('Folder', workspace.Collision) zonefolder_collision.Name = zone..'Collision'
+		local zonefolder_decorations = Instance.new('Folder', workspace.Decorations) zonefolder_decorations.Name = zone..'Decorations'
+		local zonefolder_objects = Instance.new('Folder', workspace.Objects) zonefolder_objects.Name = zone..'Objects'
+		local zonefolder_rails = Instance.new('Folder', workspace.Objects.Rails) zonefolder_rails.Name = zone..'Rails'
+		instdatatext.Visible = true
+
+		--Spawn lighting
+		for _,v in pairs(lighting:GetChildren()) do
+			v:Clone().Parent = game.Lighting
+		end
+		
+		for _, instance in ipairs(collision:GetChildren()) do
+			instance:Clone().Parent = zonefolder_collision
+			instdatatext.Text = 'Asset insert speed: '..assetloaddelay..' asset per sec, Loaded assets: '..#zonefolder_collision:GetDescendants()..'/'..#collision:GetDescendants()
+
+			--Collision loaded
+			if #zonefolder_collision:GetChildren() == #collision:GetChildren() then
+				statetext.Text = 'Instancing zone objects...'
+				music:Play(print('Collision loaded, playing zone music'))
+				
+				--Spawn decorations, if they exist
+				if decorations ~= nil then
+					for _,decor in ipairs(decorations:GetChildren()) do
+						decor:Clone().Parent = zonefolder_decorations
+						instdatatext.Text = 'Asset insert speed: '..assetloaddelay..' asset per sec, Loaded assets: '..#zonefolder_decorations:GetDescendants()..'/'..#decorations:GetDescendants()
+						
+						print('Decor inserted')
+						task.wait(assetloaddelay)
+					end
+				end
+				
+				--Spawn zone objects
+				for _,obj in ipairs(objects:GetChildren()) do
+					obj:Clone().Parent = zonefolder_objects
+					instdatatext.Text = 'Object insert speed: '..assetloaddelay..' obj per sec, Loaded objects: '..#zonefolder_objects:GetDescendants()..'/'..#objects:GetDescendants()
+
+					--Objects loaded
+					if #zonefolder_objects:GetChildren() == #objects:GetChildren() then
+						--Spawn rails
+						for _,rail in pairs(rails:GetChildren()) do
+							rail:Clone().Parent = zonefolder_rails
+						end
+
+						--Resume game after zone spawn
+						statetext.Text = 'Zone spawned, resuming game...'
+						instdatatext.Visible = false
+						instdatatext.Text = '0'
+						task.wait(0.2)
+						self.zone.Value = zone
+						self.state = constants.state.airborne
+						self.animation = 'Fall'
+						gui.Enabled = false
+						statetext.Text = 'Preparing to boot'
+						bg.Image = images.zoneimages.None
+						self:SwitchCharacter(game.ReplicatedStorage.Assets.Skins:WaitForChild(self.skin))
+						self.map_instancing = false
+
+						print('Object inserted')
+						task.wait(assetloaddelay)
+					end
+				end
+				
+			end
+
+			print('Asset inserted')
+			wait(assetloaddelay)
+		end
+
+		--idle
+	end
+end
+
+return zoneinstancer
